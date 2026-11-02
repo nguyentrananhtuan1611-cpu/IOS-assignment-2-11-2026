@@ -1,1 +1,413 @@
 
+import SwiftUI
+
+class LibraryResource: ObservableObject, Identifiable {
+    let id = UUID()
+    let title: String
+    let author: String
+    let publicationYear: Int
+
+    @Published private(set) var isAvailable = true
+
+    init(title: String, author: String, publicationYear: Int) {
+        self.title = title
+        self.author = author
+        self.publicationYear = publicationYear
+    }
+
+    fileprivate func setAvailability(_ value: Bool) {
+        isAvailable = value
+    }
+
+    func borrow() -> String {
+        guard isAvailable else {
+            return "This resource is not available."
+        }
+
+        setAvailability(false)
+        return "Borrowing successful."
+    }
+
+    func returnResource() -> String {
+        guard !isAvailable else {
+            return "This resource has not been borrowed."
+        }
+
+        setAvailability(true)
+        return "Return successful."
+    }
+
+    func calculateFee(lateDays: Int) -> Double {
+        return 0
+    }
+}
+
+class PrintedBook: LibraryResource {
+    let isbn: String
+    let isShortLoan: Bool
+
+    init(
+        title: String,
+        author: String,
+        publicationYear: Int,
+        isbn: String,
+        isShortLoan: Bool
+    ) {
+        self.isbn = isbn
+        self.isShortLoan = isShortLoan
+
+        super.init(
+            title: title,
+            author: author,
+            publicationYear: publicationYear
+        )
+    }
+
+    override func calculateFee(lateDays: Int) -> Double {
+        return Double(max(0, lateDays)) * 5000
+    }
+}
+
+class AcademicJournal: LibraryResource {
+    let volume: Int
+    let issue: Int
+    let canBorrow: Bool
+
+    init(
+        title: String,
+        author: String,
+        publicationYear: Int,
+        volume: Int,
+        issue: Int,
+        canBorrow: Bool
+    ) {
+        self.volume = volume
+        self.issue = issue
+        self.canBorrow = canBorrow
+
+        super.init(
+            title: title,
+            author: author,
+            publicationYear: publicationYear
+        )
+    }
+
+    override func borrow() -> String {
+        guard canBorrow else {
+            return "This journal is for in-library use only."
+        }
+
+        return super.borrow()
+    }
+
+    override func calculateFee(lateDays: Int) -> Double {
+        return Double(max(0, lateDays)) * 8000
+    }
+}
+
+class DigitalMaterial: LibraryResource {
+    let platform: String
+    let licenseExpiration: Date
+    let maximumUsers: Int
+
+    @Published private(set) var currentUsers = 0
+
+    init(
+        title: String,
+        author: String,
+        publicationYear: Int,
+        platform: String,
+        licenseExpiration: Date,
+        maximumUsers: Int
+    ) {
+        self.platform = platform
+        self.licenseExpiration = licenseExpiration
+        self.maximumUsers = maximumUsers
+
+        super.init(
+            title: title,
+            author: author,
+            publicationYear: publicationYear
+        )
+
+        setAvailability(
+            maximumUsers > 0 && Date() <= licenseExpiration
+        )
+    }
+
+    override func borrow() -> String {
+        guard Date() <= licenseExpiration else {
+            return "The digital license has expired."
+        }
+
+        guard currentUsers < maximumUsers else {
+            return "Maximum users reached."
+        }
+
+        currentUsers += 1
+
+        setAvailability(
+            currentUsers < maximumUsers && Date() <= licenseExpiration
+        )
+
+        return "Access granted successfully."
+    }
+
+    override func returnResource() -> String {
+        guard currentUsers > 0 else {
+            return "There is no active session."
+        }
+
+        currentUsers -= 1
+
+        setAvailability(
+            currentUsers < maximumUsers && Date() <= licenseExpiration
+        )
+
+        return "Access closed successfully."
+    }
+
+    override func calculateFee(lateDays: Int) -> Double {
+        return 10000
+    }
+}
+
+class LibraryViewModel: ObservableObject {
+    @Published var resources: [LibraryResource] = []
+
+    init() {
+        resources = [
+            PrintedBook(
+                title: "Introduction to Swift",
+                author: "Apple",
+                publicationYear: 2024,
+                isbn: "978-0130000001",
+                isShortLoan: false
+            ),
+
+            PrintedBook(
+                title: "Programming Fundamentals",
+                author: "John Smith",
+                publicationYear: 2023,
+                isbn: "978-0130000002",
+                isShortLoan: true
+            ),
+
+            AcademicJournal(
+                title: "Journal of Computer Science",
+                author: "Research Group",
+                publicationYear: 2024,
+                volume: 12,
+                issue: 3,
+                canBorrow: true
+            ),
+
+            AcademicJournal(
+                title: "Scientific Research Journal",
+                author: "University Research Center",
+                publicationYear: 2022,
+                volume: 8,
+                issue: 2,
+                canBorrow: false
+            ),
+
+            DigitalMaterial(
+                title: "iOS Development E-book",
+                author: "Apple Developer",
+                publicationYear: 2025,
+                platform: "Online Library",
+                licenseExpiration: Calendar.current.date(
+                    byAdding: .year,
+                    value: 1,
+                    to: Date()
+                ) ?? Date(),
+                maximumUsers: 3
+            )
+        ]
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var viewModel = LibraryViewModel()
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(viewModel.resources) { resource in
+                    NavigationLink {
+                        ResourceDetailView(resource: resource)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(resource.title)
+                                .font(.headline)
+
+                            Text(resource.author)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            HStack {
+                                Text(resource is PrintedBook ? "Printed Book" :
+                                     resource is AcademicJournal ? "Academic Journal" :
+                                     "Digital Material")
+
+                                Spacer()
+
+                                Text(resource.isAvailable ? "Available" : "Unavailable")
+                                    .foregroundColor(
+                                        resource.isAvailable ? .green : .red
+                                    )
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle("Library Resources")
+        }
+    }
+}
+
+struct ResourceDetailView: View {
+    @ObservedObject var resource: LibraryResource
+
+    @State private var message = ""
+    @State private var showAlert = false
+    @State private var lateDays = 0
+
+    var body: some View {
+        Form {
+            Section("Resource Information") {
+                DetailRow(title: "Title", value: resource.title)
+                DetailRow(title: "Author", value: resource.author)
+                DetailRow(
+                    title: "Publication Year",
+                    value: "\(resource.publicationYear)"
+                )
+
+                DetailRow(
+                    title: "Resource Type",
+                    value: resource is PrintedBook ? "Printed Book" :
+                           resource is AcademicJournal ? "Academic Journal" :
+                           "Digital Material"
+                )
+
+                DetailRow(
+                    title: "Availability",
+                    value: resource.isAvailable ? "Available" : "Unavailable"
+                )
+            }
+
+            if let book = resource as? PrintedBook {
+                Section("Book Information") {
+                    DetailRow(title: "ISBN", value: book.isbn)
+                    DetailRow(
+                        title: "Loan Type",
+                        value: book.isShortLoan ? "Short Loan" : "Regular Loan"
+                    )
+                }
+            }
+
+            if let journal = resource as? AcademicJournal {
+                Section("Journal Information") {
+                    DetailRow(title: "Volume", value: "\(journal.volume)")
+                    DetailRow(title: "Issue", value: "\(journal.issue)")
+                    DetailRow(
+                        title: "Borrowing",
+                        value: journal.canBorrow ? "Allowed" : "In-library only"
+                    )
+                }
+            }
+
+            if let digital = resource as? DigitalMaterial {
+                Section("Digital Material Information") {
+                    DetailRow(title: "Platform", value: digital.platform)
+                    DetailRow(
+                        title: "Maximum Users",
+                        value: "\(digital.maximumUsers)"
+                    )
+                    DetailRow(
+                        title: "Current Users",
+                        value: "\(digital.currentUsers)"
+                    )
+                    DetailRow(
+                        title: "License Expiration",
+                        value: digital.licenseExpiration.formatted(
+                            date: .abbreviated,
+                            time: .omitted
+                        )
+                    )
+                }
+            }
+
+            Section("Library Operations") {
+                Button("Borrow Resource / Request Access") {
+                    message = resource.borrow()
+                    showAlert = true
+                }
+                .disabled(
+                    !resource.isAvailable ||
+                    (resource is DigitalMaterial &&
+                     Date() > (resource as! DigitalMaterial).licenseExpiration)
+                )
+
+                Button("Return Resource / Close Access") {
+                    message = resource.returnResource()
+                    showAlert = true
+                }
+                .disabled(
+                    resource is DigitalMaterial
+                    ? (resource as! DigitalMaterial).currentUsers == 0
+                    : resource.isAvailable
+                )
+            }
+
+            Section("Late Fee Calculation") {
+                Stepper(
+                    "Late Days: \(lateDays)",
+                    value: $lateDays,
+                    in: 0...365
+                )
+
+                DetailRow(
+                    title: "Total Fee",
+                    value: "\(Int(resource.calculateFee(lateDays: lateDays))) VND"
+                )
+            }
+
+            Section("Validation Test") {
+                Button("Test Invalid Borrowing") {
+                    message = resource.borrow()
+                    showAlert = true
+                }
+            }
+        }
+        .navigationTitle("Resource Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Library System", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message)
+        }
+    }
+}
+
+struct DetailRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}
+
